@@ -88,13 +88,24 @@ public:
 private:
     protocol::BlockHeader::Ptr getLatestHeaderFromStorage();
     protocol::BlockNumber getLatestBlockNumberFromStorage();
-    Error::Ptr resultNotifier(const Error::Ptr& _error, const protocol::BlockHeader::Ptr& _header)
+    Error::Ptr resultNotifier(const Error::Ptr& _error, const protocol::BlockHeader::Ptr _header)
     {
         // async notify dispatcher
-        std::promise<Error::Ptr> barrier;
         m_dispatcher->asyncNotifyExecutionResult(
-            _error, _header, [&barrier](const Error::Ptr& error) { barrier.set_value(error); });
-        return barrier.get_future().get();
+            _error, _header, [_header](const Error::Ptr& error) {
+                if (_error)
+                {
+                    EXECUTOR_LOG(WARNING) << LOG_DESC("asyncNotifyExecutionResult failed")
+                                          << LOG_KV("code", _error->errorCode())
+                                          << LOG_KV("msg", _error->errorMessage())
+                                          << LOG_KV("number", _header->number())
+                                          << LOG_KV("hash", _header->hash().abridged());
+                    return;
+                }
+                EXECUTOR_LOG(INFO) << LOG_DESC("asyncNotifyExecutionResult success")
+                                   << LOG_KV("number", _header->number())
+                                   << LOG_KV("hash", _header->hash().abridged());
+            });
     };
     protocol::BlockFactory::Ptr m_blockFactory;
     dispatcher::DispatcherInterface::Ptr m_dispatcher;
@@ -111,6 +122,9 @@ private:
     std::unique_ptr<std::thread> m_worker = nullptr;
     const ExecutorVersion m_version;
     std::map<std::string, std::shared_ptr<PrecompiledContract>> m_precompiledContract;
+
+    // try to refetch the block every 3seconds
+    unsigned m_fetchBlockTimeout = 3000;
 };
 
 }  // namespace executor
